@@ -1,8 +1,10 @@
 import json
 import os
 from google.cloud import bigquery
+from google.cloud.exceptions import NotFound
 from google.cloud import storage
 import gcsfs
+import pandas as pd
 
 
 # gcs_client = storage.Client()
@@ -22,7 +24,7 @@ def handle_bq():
             SELECT name, role, age FROM 
             `accenture-poc-335313.sample.Employee`;
     """
-    query_job = bq_client.query(query)  # Make an API request.
+    query_job = bq_client.query(query)  
 
     print("The query data:")
     for row in query_job:
@@ -30,16 +32,24 @@ def handle_bq():
         print("panId={}, name={}".format(row[0], row["role"]))
 
 
-def upload_data_to_bq(project_id=None, dataset_id=None, table_name=None, schema_fields=None, data=None):
-    from google.cloud import bigquery
-    from google.cloud.exceptions import NotFound
+def create_or_update_table_data(project_id=None, dataset_id=None, table_name=None, 
+                                schema_fields=None, data=None):
+    '''
+        Params:
+            Project ID 
+            Dataset ID
+            Table Name
+            Schema Fields
+            Data
+    '''
 
     client = bigquery.Client()
     table_id = f"{project_id}.{dataset_id}.{table_name}"
 
-    # Checking table exist or Not, if not then creating new table in exception section
+    # Checking table exist or Not, 
+    # if not then creating new table in exception section
     try:
-        client.get_table(table_id)  # Make an API request.
+        client.get_table(table_id)  
         print(f"Table {table_id} already exists.")
     except NotFound:
         print(f"Table {table_id} is not found.")
@@ -48,7 +58,7 @@ def upload_data_to_bq(project_id=None, dataset_id=None, table_name=None, schema_
             schema.append(bigquery.SchemaField(field[0], field[1], mode=field[2]))
 
         table = bigquery.Table(table_id, schema=schema)
-        table = client.create_table(table)  # Make an API request.
+        table = client.create_table(table)  
         print(f"Created table {table.project}.{table.dataset_id}.{table.table_id}")
 
     # If data is null then returning back to avoid errors
@@ -62,7 +72,7 @@ def upload_data_to_bq(project_id=None, dataset_id=None, table_name=None, schema_
     if len(data) < 10000:
         errors = client.insert_rows_json(
             table_id, data,
-        )  # Make an API request.
+        )  
         if not errors:
             print("New rows have been added.")
         else:
@@ -73,7 +83,7 @@ def upload_data_to_bq(project_id=None, dataset_id=None, table_name=None, schema_
             data_to_insert = data[start: (end - 1)]
             errors = client.insert_rows_json(
                 table_id, data_to_insert,
-            )  # Make an API request.
+            )  
             if not errors:
                 print("New rows have been added.")
             else:
@@ -83,7 +93,7 @@ def upload_data_to_bq(project_id=None, dataset_id=None, table_name=None, schema_
             data_to_insert = data[(start + chunk): size]
             errors = client.insert_rows_json(
                 table_id, data_to_insert,
-            )  # Make an API request.
+            )  
             if not errors:
                 print("New rows have been added.")
             else:
@@ -91,24 +101,30 @@ def upload_data_to_bq(project_id=None, dataset_id=None, table_name=None, schema_
 
 
 def read_from_gcs(file_name=""):
+
     gcs_file_system = gcsfs.GCSFileSystem(project="accenture-poc-335313")
 
     gcs_json_path = "gs://poc-bucket-accenture/"
 
+    if file_name.endswith(".csv"):
+        df = pd.read_csv(f"gs://poc-bucket-accenture/{file_name}", encoding='utf-8')
+        return df.to_dict('r')
+    
     with gcs_file_system.open(str(gcs_json_path + file_name)) as f:
         json_dict = json.load(f)
         
         return json_dict
 
+
 if __name__ == '__main__':
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "accenture-poc-335313-3aa9da2d4423.json"
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "accenture-poc-service.json"
 
     file_data = read_from_gcs("file1.json")
-
+    
     schema_fields = [
             ("name", "STRING", "NULLABLE"),
             ("role", "STRING", "NULLABLE"),
             ("age", "INT64", "NULLABLE")
         ]
 
-    upload_data_to_bq("accenture-poc-service", "sample", 'Employee', schema_fields, file_data)
+    create_or_update_table_data("accenture-poc-335313", "sample", 'Employee', schema_fields, file_data)
